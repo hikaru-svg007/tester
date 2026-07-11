@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Persona Roleplay",
+  "description": "AI Roleplay Chat Bot with customizable characters, dynamic personas/LoRAs, and multi-model support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
