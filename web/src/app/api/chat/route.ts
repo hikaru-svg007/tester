@@ -17,6 +17,9 @@ async function fetchGeminiWithFailover(payload: any, attempt: number = 0): Promi
 
   console.log(`[Failover Engine] Percobaan #${attempt + 1} menggunakan API Key index: ${currentKeyIndex}`);
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
   try {
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${activeKey}`,
@@ -26,9 +29,10 @@ async function fetchGeminiWithFailover(payload: any, attempt: number = 0): Promi
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(15000), // Timeout 15s untuk failover cepat
+        signal: controller.signal,
       }
     );
+    clearTimeout(timeoutId);
 
     // Jika terkena rate limit (429) atau error server internal (5xx), dan masih ada key lain
     if ((response.status === 429 || response.status >= 500) && attempt < geminiKeys.length - 1) {
