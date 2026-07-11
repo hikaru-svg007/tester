@@ -6,7 +6,7 @@ const geminiKeys = (process.env.GEMINI_API_KEYS || "").split(",").filter(Boolean
 /**
  * Melakukan pemanggilan ke Gemini API dengan rotasi kunci otomatis jika gagal (failover)
  */
-async function fetchGeminiWithFailover(payload: any, customApiKey?: string, attempt: number = 0): Promise<Response> {
+async function fetchGeminiWithFailover(payload: any, customApiKey?: string, selectedModel: string = "gemini-1.5-pro", attempt: number = 0): Promise<Response> {
   const activeKey = customApiKey || (geminiKeys.length > 0 ? geminiKeys[attempt % geminiKeys.length] : undefined);
   
   if (!activeKey) {
@@ -22,9 +22,17 @@ async function fetchGeminiWithFailover(payload: any, customApiKey?: string, atte
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
 
+  // Map model names to actual Gemini API endpoint models
+  let modelEndpoint = selectedModel;
+  if (selectedModel.includes("flash")) {
+    modelEndpoint = "gemini-1.5-flash";
+  } else if (selectedModel.includes("pro")) {
+    modelEndpoint = "gemini-1.5-pro";
+  }
+
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${activeKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelEndpoint}:generateContent?key=${activeKey}`,
       {
         method: "POST",
         headers: {
@@ -43,7 +51,7 @@ async function fetchGeminiWithFailover(payload: any, customApiKey?: string, atte
     // Jika terkena rate limit (429) atau error server internal (5xx), dan masih ada key lain
     if ((response.status === 429 || response.status >= 500) && geminiKeys.length > 0 && attempt < geminiKeys.length - 1) {
       console.warn(`[Failover Engine] Key index ${attempt % geminiKeys.length} mengembalikan status ${response.status}. Mencoba key berikutnya...`);
-      return fetchGeminiWithFailover(payload, undefined, attempt + 1);
+      return fetchGeminiWithFailover(payload, undefined, selectedModel, attempt + 1);
     }
 
     // Jika response tidak oke tapi sudah kehabisan key cadangan
@@ -58,7 +66,7 @@ async function fetchGeminiWithFailover(payload: any, customApiKey?: string, atte
     console.error(`[Failover Engine] Kesalahan jaringan:`, error.message);
     
     if (!customApiKey && geminiKeys.length > 0 && attempt < geminiKeys.length - 1) {
-      return fetchGeminiWithFailover(payload, undefined, attempt + 1);
+      return fetchGeminiWithFailover(payload, undefined, selectedModel, attempt + 1);
     }
     throw error;
   } finally {
@@ -68,7 +76,7 @@ async function fetchGeminiWithFailover(payload: any, customApiKey?: string, atte
 
 export async function POST(req: Request) {
   try {
-    const { messages, systemInstruction, customApiKey } = await req.json();
+    const { messages, systemInstruction, customApiKey, model } = await req.json();
 
     // Mapping payload sesuai API resmi Gemini
     const contents = messages.map((m: any) => ({
@@ -88,7 +96,7 @@ export async function POST(req: Request) {
       }
     };
 
-    const response = await fetchGeminiWithFailover(payload, customApiKey);
+    const response = await fetchGeminiWithFailover(payload, customApiKey, model || "gemini-1.5-pro");
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
