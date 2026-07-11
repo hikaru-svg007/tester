@@ -32,7 +32,6 @@ async function fetchGeminiWithFailover(payload: any, attempt: number = 0): Promi
         signal: controller.signal,
       }
     );
-    clearTimeout(timeoutId);
 
     // Jika terkena rate limit (429) atau error server internal (5xx), dan masih ada key lain
     if ((response.status === 429 || response.status >= 500) && attempt < geminiKeys.length - 1) {
@@ -55,6 +54,8 @@ async function fetchGeminiWithFailover(payload: any, attempt: number = 0): Promi
       return fetchGeminiWithFailover(payload, attempt + 1);
     }
     throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
