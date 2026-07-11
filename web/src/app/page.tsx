@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import MobileFrame from "@/components/MobileFrame";
-import { parseDreamPlayResponse } from "@/utils/parser";
+import MobileFrame from "../components/MobileFrame";
+import { parseDreamPlayResponse } from "../utils/parser";
 
 interface Message {
   id: string;
