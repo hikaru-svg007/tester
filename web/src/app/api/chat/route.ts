@@ -22,30 +22,18 @@ async function fetchGeminiWithFailover(payload: any, customApiKey?: string, sele
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-  // Map model names to actual Gemini API endpoint models
-  let modelEndpoint = selectedModel;
-  if (["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-3.5-flash"].includes(selectedModel)) {
-    modelEndpoint = selectedModel;
-  } else {
-    if (selectedModel.includes("3.5-flash")) {
-      modelEndpoint = "gemini-3.5-flash";
-    } else if (selectedModel.includes("2.5-flash")) {
-      modelEndpoint = "gemini-2.5-flash";
-    } else if (selectedModel.includes("2.0-flash")) {
-      modelEndpoint = "gemini-2.0-flash";
-    } else if (selectedModel.includes("1.5-flash")) {
-      modelEndpoint = "gemini-1.5-flash";
-    } else if (selectedModel.includes("1.5-pro")) {
-      modelEndpoint = "gemini-1.5-pro";
-    } else if (selectedModel.includes("flash")) {
-      modelEndpoint = "gemini-1.5-flash";
-    } else if (selectedModel.includes("pro")) {
-      modelEndpoint = "gemini-1.5-pro";
-    }
+  // Map model names to actual valid Gemini API endpoint models to prevent 404 errors
+  let modelEndpoint = "gemini-1.5-flash"; // Default stable
+  if (selectedModel.includes("3.5-flash") || selectedModel.includes("2.5-flash") || selectedModel.includes("2.0-flash") || selectedModel.includes("2.0-flash-exp")) {
+    modelEndpoint = "gemini-2.0-flash";
+  } else if (selectedModel.includes("1.5-pro") || selectedModel.includes("pro")) {
+    modelEndpoint = "gemini-1.5-pro";
+  } else if (selectedModel.includes("1.5-flash") || selectedModel.includes("flash")) {
+    modelEndpoint = "gemini-1.5-flash";
   }
 
   try {
-    const response = await fetch(
+    let response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${modelEndpoint}:generateContent?key=${activeKey}`,
       {
         method: "POST",
@@ -57,8 +45,20 @@ async function fetchGeminiWithFailover(payload: any, customApiKey?: string, sele
       }
     );
 
-    // Jika menggunakan custom key, langsung return response apa adanya (baik sukses maupun error)
-    if (customApiKey || response.ok) {
+    // If model is unsupported, fallback to stable gemini-1.5-flash
+    if ((response.status === 404 || response.status === 400) && modelEndpoint !== "gemini-1.5-flash") {
+      console.warn(`[Failover Engine] Model ${modelEndpoint} returned status ${response.status}. Retrying with gemini-1.5-flash...`);
+      return fetchGeminiWithFailover(payload, customApiKey, "gemini-1.5-flash", attempt);
+    }
+
+    // If custom API key fails, fallback to server keys if available
+    if (!response.ok && customApiKey && geminiKeys.length > 0) {
+      console.warn("[Failover Engine] Custom API key gagal. Mencoba dengan API Key cadangan server...");
+      return fetchGeminiWithFailover(payload, undefined, selectedModel, 0);
+    }
+
+    // Jika sukses atau menggunakan custom key (dan berhasil)
+    if (response.ok) {
       return response;
     }
 
@@ -79,6 +79,12 @@ async function fetchGeminiWithFailover(payload: any, customApiKey?: string, sele
   } catch (error: any) {
     console.error(`[Failover Engine] Kesalahan jaringan:`, error.message);
     
+    // Fallback on network error for custom API key
+    if (customApiKey && geminiKeys.length > 0) {
+      console.warn("[Failover Engine] Custom API key mengalami kesalahan jaringan. Mencoba dengan API Key cadangan server...");
+      return fetchGeminiWithFailover(payload, undefined, selectedModel, 0);
+    }
+
     if (!customApiKey && geminiKeys.length > 0 && attempt < geminiKeys.length - 1) {
       return fetchGeminiWithFailover(payload, undefined, selectedModel, attempt + 1);
     }

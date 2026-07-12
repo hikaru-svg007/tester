@@ -11,6 +11,7 @@ interface ColorCustomizerProps {
 export default function ColorCustomizer({ theme, onChange }: ColorCustomizerProps) {
   const [selectedElement, setSelectedElement] = useState<keyof ColorTheme>("dialogueColor");
   const [brightness, setBrightness] = useState<number>(100);
+  const [isDragging, setIsDragging] = useState(false);
   const wheelRef = useRef<HTMLDivElement>(null);
 
   // Helper: HSL to HEX
@@ -55,17 +56,35 @@ export default function ColorCustomizer({ theme, onChange }: ColorCustomizerProp
     };
   };
 
-  const handleWheelClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handlePointerDown = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
+    setIsDragging(true);
+    handlePointerMove(e);
+  };
+
+  const handlePointerMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement> | any) => {
+    if (e.type !== "click" && e.type !== "mousedown" && e.type !== "touchstart" && !isDragging) return;
     if (!wheelRef.current) return;
     const rect = wheelRef.current.getBoundingClientRect();
     const cx = rect.width / 2;
     const cy = rect.height / 2;
-    const x = e.clientX - rect.left - cx;
-    const y = e.clientY - rect.top - cy;
+
+    let clientX = 0;
+    let clientY = 0;
+
+    if (e.touches && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+
+    const x = clientX - rect.left - cx;
+    const y = clientY - rect.top - cy;
 
     const angle = Math.atan2(y, x);
     const deg = (angle * 180 / Math.PI + 360) % 360;
-    const dist = Math.sqrt(x*x + y*y);
+    const dist = Math.sqrt(x * x + y * y);
     const maxDist = rect.width / 2;
     const sat = Math.min(100, Math.round((dist / maxDist) * 100));
 
@@ -78,6 +97,16 @@ export default function ColorCustomizer({ theme, onChange }: ColorCustomizerProp
       [selectedElement]: hexColor
     });
   };
+
+  useEffect(() => {
+    const handleMouseUp = () => setIsDragging(false);
+    window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("touchend", handleMouseUp);
+    return () => {
+      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("touchend", handleMouseUp);
+    };
+  }, [isDragging]);
 
   const applyPreset = (presetKey: keyof typeof DEFAULT_THEMES) => {
     onChange(DEFAULT_THEMES[presetKey]);
@@ -94,6 +123,13 @@ export default function ColorCustomizer({ theme, onChange }: ColorCustomizerProp
       default: return "";
     }
   };
+
+  // Get active color's HSL to position the wheel pointer marker
+  const activeColorHsl = hexToHsl(theme[selectedElement]);
+  const radian = (activeColorHsl.h * Math.PI) / 180;
+  // Let's scale saturation distance so it matches the wheel radius visually
+  const markerX = 50 + Math.cos(radian) * (activeColorHsl.s * 0.42);
+  const markerY = 50 + Math.sin(radian) * (activeColorHsl.s * 0.42);
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
@@ -157,7 +193,10 @@ export default function ColorCustomizer({ theme, onChange }: ColorCustomizerProp
       <div className="flex flex-col items-center justify-center py-3">
         <div
           ref={wheelRef}
-          onClick={handleWheelClick}
+          onMouseDown={handlePointerDown}
+          onTouchStart={handlePointerDown}
+          onMouseMove={handlePointerMove}
+          onTouchMove={handlePointerMove}
           className="w-44 h-44 rounded-full relative cursor-crosshair border border-slate-800 shadow-xl transition-all active:scale-[0.98]"
           style={{
             background: "conic-gradient(from 0deg, red, #ff00ff, blue, #00ffff, green, #ffff00, red)",
@@ -166,8 +205,15 @@ export default function ColorCustomizer({ theme, onChange }: ColorCustomizerProp
           {/* Saturation overlay */}
           <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,_rgba(255,255,255,0.8)_0%,_transparent_100%)]"></div>
           
-          {/* Inner ring marker center anchor */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-white bg-slate-950 shadow-md"></div>
+          {/* Dynamic ring marker position based on selected color */}
+          <div
+            className="absolute w-3.5 h-3.5 rounded-full border-2 border-white bg-slate-950 shadow-md -translate-x-1/2 -translate-y-1/2 transition-all duration-75"
+            style={{
+              left: `${markerX}%`,
+              top: `${markerY}%`,
+              backgroundColor: theme[selectedElement].replace("#FF", "#")
+            }}
+          />
         </div>
       </div>
 

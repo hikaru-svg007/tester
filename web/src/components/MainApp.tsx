@@ -40,6 +40,7 @@ interface Message {
   content: string;
   narrativeParsed?: string;
   optionsParsed?: string[];
+  isPinned?: boolean;
 }
 
 interface DreamArtItem {
@@ -122,6 +123,10 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [isTrackerOpen, setIsTrackerOpen] = useState(false);
+
+  // Message Editing & Action states
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
 
   // Filter tag in Explore Tab
   const [exploreFilter, setExploreFilter] = useState("Semua");
@@ -406,6 +411,86 @@ export default function Home() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, activeSessionId, loading]);
+
+  // Toggle Sematkan (Pin) Pesan
+  const handleTogglePinMessage = (messageId: string) => {
+    if (!activeSessionId || !messages[activeSessionId]) return;
+    const updated = messages[activeSessionId].map(msg => {
+      if (msg.id === messageId) {
+        return { ...msg, isPinned: !msg.isPinned };
+      }
+      return msg;
+    });
+    const newMessagesMap = { ...messages, [activeSessionId]: updated };
+    setMessages(newMessagesMap);
+    localStorage.setItem(`dreamplay_messages`, JSON.stringify(newMessagesMap));
+  };
+
+  // Hapus Pesan
+  const handleDeleteMessage = (messageId: string) => {
+    if (!activeSessionId || !messages[activeSessionId]) return;
+    const updated = messages[activeSessionId].filter(msg => msg.id !== messageId);
+    const newMessagesMap = { ...messages, [activeSessionId]: updated };
+    setMessages(newMessagesMap);
+    localStorage.setItem(`dreamplay_messages`, JSON.stringify(newMessagesMap));
+  };
+
+  // Edit Pesan
+  const handleEditMessage = (messageId: string, newContent: string) => {
+    if (!activeSessionId || !messages[activeSessionId] || !newContent.trim()) return;
+    const updated = messages[activeSessionId].map(msg => {
+      if (msg.id === messageId) {
+        const parsed = parseDreamPlayResponse(newContent);
+        return {
+          ...msg,
+          content: newContent,
+          narrativeParsed: parsed.narrative,
+          optionsParsed: parsed.options,
+        };
+      }
+      return msg;
+    });
+    const newMessagesMap = { ...messages, [activeSessionId]: updated };
+    setMessages(newMessagesMap);
+    localStorage.setItem(`dreamplay_messages`, JSON.stringify(newMessagesMap));
+  };
+
+  // Regenerasi / Coba Lagi Pesan (Retry)
+  const handleRetryMessage = async (messageId: string) => {
+    if (!activeSessionId || !messages[activeSessionId] || loading) return;
+    const currentMsgs = messages[activeSessionId];
+    const msgIndex = currentMsgs.findIndex(m => m.id === messageId);
+    if (msgIndex === -1) return;
+
+    let messagesToKeep: Message[] = [];
+    let textToTrigger = "";
+
+    if (currentMsgs[msgIndex].role === "user") {
+      messagesToKeep = currentMsgs.slice(0, msgIndex);
+      textToTrigger = currentMsgs[msgIndex].content;
+    } else {
+      messagesToKeep = currentMsgs.slice(0, msgIndex);
+      const lastUserMsg = [...messagesToKeep].reverse().find(m => m.role === "user");
+      if (lastUserMsg) {
+        textToTrigger = lastUserMsg.content;
+        messagesToKeep = messagesToKeep.filter(m => m.id !== lastUserMsg.id);
+      } else {
+        return;
+      }
+    }
+
+    const newMessagesMap = {
+      ...messages,
+      [activeSessionId]: messagesToKeep,
+    };
+    setMessages(newMessagesMap);
+    localStorage.setItem(`dreamplay_messages`, JSON.stringify(newMessagesMap));
+
+    // Delay briefly to allow state update before sending
+    setTimeout(() => {
+      handleSend(textToTrigger);
+    }, 100);
+  };
 
   // Handle send message
   const handleSend = async (textToSend: string) => {
@@ -1031,7 +1116,10 @@ export default function Home() {
 
         {/* ==================== B. CHAT TAB ==================== */}
         {activeTab === "chat" && (
-          <div className="flex-1 flex flex-col h-full">
+          <div 
+            className="flex-1 flex flex-col h-full transition-all duration-300"
+            style={{ backgroundColor: colorTheme.mainChatBg.replace("#FF", "#") }}
+          >
             
             {/* Show session chat messages */}
             {activeSessionId && messages[activeSessionId] ? (
@@ -1039,61 +1127,197 @@ export default function Home() {
                 
                 {/* Scrollable messages block */}
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 flex flex-col">
+                  {/* Pinned Messages Board */}
+                  {(() => {
+                    const pinnedMessages = messages[activeSessionId]?.filter(m => m.isPinned) || [];
+                    if (pinnedMessages.length === 0) return null;
+                    return (
+                      <div className="bg-gradient-to-br from-yellow-500/10 to-amber-600/5 border border-yellow-500/20 rounded-2xl p-3.5 shadow-lg relative overflow-hidden group mb-2">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5 text-xs font-extrabold text-yellow-400 uppercase tracking-wide">
+                            <svg className="w-3.5 h-3.5 fill-current animate-pulse" viewBox="0 0 24 24">
+                              <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
+                            </svg>
+                            Sematkan Plot & Lore ({pinnedMessages.length})
+                          </div>
+                        </div>
+                        <div className="space-y-2 max-h-[120px] overflow-y-auto scrollbar-thin">
+                          {pinnedMessages.map((pinnedMsg) => (
+                            <div key={pinnedMsg.id} className="bg-slate-950/60 border border-slate-800/40 rounded-xl p-2.5 flex items-start justify-between gap-3 text-xs leading-relaxed">
+                              <div className="text-slate-300 line-clamp-2">
+                                <span className="font-bold text-yellow-500/90 mr-1">
+                                  {pinnedMsg.role === "user" ? "Anda:" : "Jane:"}
+                                </span>
+                                {pinnedMsg.narrativeParsed || pinnedMsg.content}
+                              </div>
+                              <button
+                                onClick={() => handleTogglePinMessage(pinnedMsg.id)}
+                                className="text-slate-500 hover:text-yellow-400 transition-colors p-1"
+                                title="Lepas Pin"
+                              >
+                                <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24">
+                                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {messages[activeSessionId].map((msg) => {
                     const isUser = msg.role === "user";
                     const parsed = msg.narrativeParsed || msg.content;
 
                     return (
-                      <div key={msg.id} className={`flex ${isUser ? "justify-end" : "justify-start"} animate-slideIn`}>
-                        <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-[14px] shadow-lg transition-all duration-300 relative group ${
-                          isUser 
-                            ? "bg-gradient-to-br from-purple-600 to-indigo-600 text-white rounded-br-none border border-purple-500/30" 
-                            : "bg-slate-900 border border-slate-800 hover:border-slate-700/50 text-slate-100 rounded-bl-none"
-                        }`}>
+                      <div key={msg.id} className={`flex ${isUser ? "justify-end" : "justify-start"} animate-slideIn relative group`}>
+                        <div 
+                          className={`max-w-[85%] rounded-2xl px-4 py-3 text-[14px] shadow-lg transition-all duration-300 relative ${
+                            isUser 
+                              ? "text-white rounded-br-none border border-purple-500/10" 
+                              : "border border-slate-800 hover:border-slate-700/30 text-slate-100 rounded-bl-none"
+                          }`}
+                          style={{
+                            backgroundColor: isUser 
+                              ? colorTheme.userBubbleBg.replace("#FF", "#") 
+                              : colorTheme.aiBubbleBg.replace("#FF", "#")
+                          }}
+                        >
                           
                           {/* Message glow for Jane/Companion */}
                           {!isUser && (
                             <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-2xl blur opacity-0 group-hover:opacity-100 transition duration-500 -z-10"></div>
                           )}
 
-                          {/* Content */}
-                          <div className="whitespace-pre-line leading-relaxed space-y-1">
-                            {isUser ? parsed : formatNarrativeText(parsed)}
-                          </div>
+                          {/* Pinned gold badge */}
+                          {msg.isPinned && (
+                            <div className="absolute -top-1.5 -left-1.5 bg-yellow-500 text-slate-950 p-1 rounded-full shadow-md z-10 animate-pulse">
+                              <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24">
+                                <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
+                              </svg>
+                            </div>
+                          )}
 
-                          {/* Render Inline Video Player if video links are present */}
-                          {(() => {
-                            const videoUrls = extractVideoUrlsFromText(parsed);
-                            if (videoUrls.length > 0) {
-                              return (
-                                <div className="mt-3 space-y-2.5 max-w-sm pointer-events-auto">
-                                  {videoUrls.map((url, i) => (
-                                    <InlineVideoPlayer key={i} videoUrl={url} />
-                                  ))}
-                                </div>
-                              );
-                            }
-                            return null;
-                          })()}
-
-                          {/* Options pills */}
-                          {!isUser && msg.optionsParsed && msg.optionsParsed.length > 0 && (
-                            <div className="mt-4 space-y-2 border-t border-slate-800/80 pt-3">
-                              <p className="text-[10px] text-purple-400 font-bold uppercase tracking-wider mb-2 flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-ping"></span>
-                                Lanjutkan Alur:
-                              </p>
-                              <div className="flex flex-col gap-1.5">
-                                {msg.optionsParsed.map((opt, i) => (
-                                  <button
-                                    key={i}
-                                    onClick={() => handleSend(opt)}
-                                    className="w-full text-left bg-slate-950 hover:bg-purple-950/40 border border-slate-850 hover:border-purple-500/40 rounded-xl px-3 py-2 text-xs text-slate-300 hover:text-purple-200 transition-all duration-200 active:scale-[0.98]"
-                                  >
-                                    <span className="font-semibold text-purple-400 mr-1">{i + 1}.</span> {opt}
-                                  </button>
-                                ))}
+                          {/* Content / Inline Editor */}
+                          {editingMessageId === msg.id ? (
+                            <div className="space-y-2 py-1 min-w-[240px]">
+                              <textarea
+                                value={editingText}
+                                onChange={(e) => setEditingText(e.target.value)}
+                                className="w-full bg-slate-950/90 border border-purple-500/40 text-slate-100 rounded-xl p-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 min-h-[100px] font-sans leading-relaxed"
+                              />
+                              <div className="flex justify-end gap-1.5">
+                                <button
+                                  onClick={() => setEditingMessageId(null)}
+                                  className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold rounded-lg transition-all active:scale-95"
+                                >
+                                  Batal
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    handleEditMessage(msg.id, editingText);
+                                    setEditingMessageId(null);
+                                  }}
+                                  className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold rounded-lg transition-all active:scale-95"
+                                >
+                                  Simpan
+                                </button>
                               </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="whitespace-pre-line leading-relaxed space-y-1">
+                                {isUser ? parsed : formatNarrativeText(parsed)}
+                              </div>
+
+                              {/* Render Inline Video Player if video links are present */}
+                              {(() => {
+                                const videoUrls = extractVideoUrlsFromText(parsed);
+                                if (videoUrls.length > 0) {
+                                  return (
+                                    <div className="mt-3 space-y-2.5 max-w-sm pointer-events-auto">
+                                      {videoUrls.map((url, i) => (
+                                        <InlineVideoPlayer key={i} videoUrl={url} />
+                                      ))}
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
+
+                              {/* Options pills */}
+                              {!isUser && msg.optionsParsed && msg.optionsParsed.length > 0 && (
+                                <div className="mt-4 space-y-2 border-t border-slate-800/80 pt-3">
+                                  <p className="text-[10px] text-purple-400 font-bold uppercase tracking-wider mb-2 flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-ping"></span>
+                                    Lanjutkan Alur:
+                                  </p>
+                                  <div className="flex flex-col gap-1.5">
+                                    {msg.optionsParsed.map((opt, i) => (
+                                      <button
+                                        key={i}
+                                        onClick={() => handleSend(opt)}
+                                        className="w-full text-left bg-slate-950 hover:bg-purple-950/40 border border-slate-850 hover:border-purple-500/40 rounded-xl px-3 py-2 text-xs text-slate-300 hover:text-purple-200 transition-all duration-200 active:scale-[0.98]"
+                                      >
+                                        <span className="font-semibold text-purple-400 mr-1">{i + 1}.</span> {opt}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          )}
+
+                          {/* Message Actions Bar */}
+                          {editingMessageId !== msg.id && (
+                            <div className="flex md:absolute md:-top-4 md:right-0 md:opacity-0 md:group-hover:opacity-100 md:bg-slate-950/95 md:backdrop-blur-md md:border md:border-slate-800/80 md:rounded-xl md:p-1 gap-1 mt-2.5 md:mt-0 justify-end transition-all duration-200 z-20 shadow-xl">
+                              {/* Pin button */}
+                              <button
+                                onClick={() => handleTogglePinMessage(msg.id)}
+                                className={`p-1.5 rounded-lg hover:bg-slate-800 transition-all active:scale-90 ${msg.isPinned ? "text-yellow-400" : "text-slate-400 hover:text-slate-200"}`}
+                                title={msg.isPinned ? "Lepas Pin" : "Sematkan Pesan"}
+                              >
+                                <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24">
+                                  <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/>
+                                </svg>
+                              </button>
+
+                              {/* Edit button */}
+                              <button
+                                onClick={() => {
+                                  setEditingMessageId(msg.id);
+                                  setEditingText(msg.content);
+                                }}
+                                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-all active:scale-90"
+                                title="Edit Pesan"
+                              >
+                                <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24">
+                                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                                </svg>
+                              </button>
+
+                              {/* Retry button */}
+                              <button
+                                onClick={() => handleRetryMessage(msg.id)}
+                                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-all active:scale-90"
+                                title="Regenerasi / Coba Lagi"
+                              >
+                                <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24">
+                                  <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                                </svg>
+                              </button>
+
+                              {/* Delete button */}
+                              <button
+                                onClick={() => handleDeleteMessage(msg.id)}
+                                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-red-400 transition-all active:scale-90"
+                                title="Hapus"
+                              >
+                                <svg className="w-3 h-3 fill-current" viewBox="0 0 24 24">
+                                  <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                                </svg>
+                              </button>
                             </div>
                           )}
                         </div>
