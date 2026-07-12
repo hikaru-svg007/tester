@@ -4215,6 +4215,25 @@ fun SettingsTab(
                         singleLine = true
                     )
 
+                    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                    TextButton(
+                        onClick = {
+                            try {
+                                uriHandler.openUri("https://aistudio.google.com/app/apikey")
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        },
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        Text(
+                            text = "Dapatkan Kunci API gratis di Google AI Studio ↗",
+                            color = Color(0xFFD0BCFF),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Row(

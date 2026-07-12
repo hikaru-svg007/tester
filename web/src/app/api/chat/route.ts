@@ -24,10 +24,24 @@ async function fetchGeminiWithFailover(payload: any, customApiKey?: string, sele
 
   // Map model names to actual Gemini API endpoint models
   let modelEndpoint = selectedModel;
-  if (selectedModel.includes("flash")) {
-    modelEndpoint = "gemini-1.5-flash";
-  } else if (selectedModel.includes("pro")) {
-    modelEndpoint = "gemini-1.5-pro";
+  if (["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-3.5-flash"].includes(selectedModel)) {
+    modelEndpoint = selectedModel;
+  } else {
+    if (selectedModel.includes("3.5-flash")) {
+      modelEndpoint = "gemini-3.5-flash";
+    } else if (selectedModel.includes("2.5-flash")) {
+      modelEndpoint = "gemini-2.5-flash";
+    } else if (selectedModel.includes("2.0-flash")) {
+      modelEndpoint = "gemini-2.0-flash";
+    } else if (selectedModel.includes("1.5-flash")) {
+      modelEndpoint = "gemini-1.5-flash";
+    } else if (selectedModel.includes("1.5-pro")) {
+      modelEndpoint = "gemini-1.5-pro";
+    } else if (selectedModel.includes("flash")) {
+      modelEndpoint = "gemini-1.5-flash";
+    } else if (selectedModel.includes("pro")) {
+      modelEndpoint = "gemini-1.5-pro";
+    }
   }
 
   try {
